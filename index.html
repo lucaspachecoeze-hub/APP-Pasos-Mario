@@ -304,6 +304,32 @@
   .history-info .steps{font-size:15px; font-weight:700;}
   .history-info .meta{font-size:12px; color:var(--text-2); margin-top:2px;}
 
+  /* ---------- ADMIN ---------- */
+  .admin-person-card{
+    background:var(--surface); border-radius:16px; padding:12px 14px; margin-bottom:10px;
+    box-shadow:var(--shadow-soft);
+  }
+  .admin-person-header{display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none;}
+  .admin-person-header .chevron{color:var(--text-3); transition:transform .25s; flex-shrink:0;}
+  .admin-person-card.expanded .admin-person-header .chevron{transform:rotate(180deg);}
+  .admin-photo-grid{
+    display:none; grid-template-columns:repeat(3, 1fr); gap:8px; margin-top:14px;
+  }
+  .admin-person-card.expanded .admin-photo-grid{display:grid;}
+  .admin-photo-item img{
+    width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; cursor:pointer;
+    display:block; transition:transform .15s;
+  }
+  .admin-photo-item img:active{transform:scale(0.96);}
+  .admin-photo-meta{font-size:10.5px; color:var(--text-2); text-align:center; margin-top:4px; line-height:1.3;}
+
+  .lightbox-overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,0.94); display:none;
+    align-items:center; justify-content:center; z-index:300; padding:28px;
+  }
+  .lightbox-overlay.active{display:flex;}
+  .lightbox-overlay img{max-width:100%; max-height:100%; border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,0.5);}
+
   /* ---------- TAB BAR ---------- */
   nav#tabbar{
     position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; z-index:50;
@@ -503,7 +529,38 @@
       <div style="margin:14px 0 8px; font-size:13px; color:var(--text-2); font-weight:600;">Tus caminatas registradas</div>
       <div id="historyContent"><div class="loading-row"><div class="dot-spin"></div>Cargando tu historial…</div></div>
     </section>
+
+    <!-- ADMIN -->
+    <section class="view" id="view-admin">
+      <div class="card" id="adminGate" style="margin-top:12px;">
+        <h3>🔒 Acceso de administrador</h3>
+        <p style="margin:0 0 14px; font-size:13px; color:var(--text-2); line-height:1.4;">Esta sección es privada. Ingresá el código de acceso para ver y verificar las caminatas de todas las alumnas.</p>
+        <div class="field">
+          <input type="password" id="adminPinInput" placeholder="Código de acceso" inputmode="numeric" autocomplete="off">
+        </div>
+        <button type="button" class="btn-submit" id="adminPinBtn">Ingresar</button>
+        <p id="adminPinError" style="display:none; color:var(--danger); font-size:12.5px; margin-top:10px; font-weight:600;">Código incorrecto, probá de nuevo.</p>
+      </div>
+
+      <div id="adminContent" style="display:none;">
+        <div class="segment" id="adminSegment">
+          <button class="active" data-range="week">Esta semana</button>
+          <button data-range="month">Este mes</button>
+        </div>
+        <div class="period-nav">
+          <button id="adminPeriodPrev" aria-label="Periodo anterior">‹</button>
+          <div class="period-label" id="adminPeriodLabel">—</div>
+          <button id="adminPeriodNext" aria-label="Periodo siguiente">›</button>
+        </div>
+        <p style="margin:0 0 12px; font-size:12px; color:var(--text-2);">Tocá una alumna para ver sus fotos de comprobación y verificar antes de elegir ganadoras.</p>
+        <div id="adminListContent"><div class="loading-row"><div class="dot-spin"></div>Cargando…</div></div>
+      </div>
+    </section>
   </main>
+
+  <div id="lightboxOverlay" class="lightbox-overlay">
+    <img id="lightboxImg" src="" alt="foto ampliada">
+  </div>
 
   <div class="toast" id="toast"></div>
 
@@ -520,6 +577,10 @@
       <button class="tab-btn" data-tab="historial">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
         <span>Historial</span>
+      </button>
+      <button class="tab-btn" data-tab="admin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/></svg>
+        <span>Admin</span>
       </button>
     </div>
   </nav>
@@ -766,6 +827,7 @@
       document.getElementById('view-'+btn.dataset.tab).classList.add('active');
       if(btn.dataset.tab === 'ranking') renderRanking();
       if(btn.dataset.tab === 'historial') renderHistory();
+      if(btn.dataset.tab === 'admin' && adminUnlocked) renderAdmin();
     });
   });
 
@@ -959,9 +1021,9 @@
   // ---------- ranking ----------
   let currentRankRange = 'week';
   let currentRankOffset = 0;
-  document.querySelectorAll('.segment button').forEach(btn=>{
+  document.querySelectorAll('#view-ranking .segment button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      document.querySelectorAll('.segment button').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('#view-ranking .segment button').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       currentRankRange = btn.dataset.range;
       currentRankOffset = 0;
@@ -1063,6 +1125,120 @@
       </div>`;
     }).join('');
   }
+
+  // ---------- admin ----------
+  // Código de acceso para Mario. Podés cambiarlo por el que quieras.
+  const ADMIN_PIN = '2026';
+  let adminUnlocked = false;
+  let adminRange = 'week';
+  let adminOffset = 0;
+
+  document.getElementById('adminPinBtn').addEventListener('click', unlockAdmin);
+  document.getElementById('adminPinInput').addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') unlockAdmin();
+  });
+  function unlockAdmin(){
+    const val = document.getElementById('adminPinInput').value.trim();
+    const errorEl = document.getElementById('adminPinError');
+    if(val === ADMIN_PIN){
+      adminUnlocked = true;
+      document.getElementById('adminGate').style.display = 'none';
+      document.getElementById('adminContent').style.display = 'block';
+      errorEl.style.display = 'none';
+      renderAdmin();
+    }else{
+      errorEl.style.display = 'block';
+    }
+  }
+
+  document.querySelectorAll('#view-admin .segment button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('#view-admin .segment button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      adminRange = btn.dataset.range;
+      adminOffset = 0;
+      renderAdmin();
+    });
+  });
+  document.getElementById('adminPeriodPrev').addEventListener('click', ()=>{
+    adminOffset += 1;
+    renderAdmin();
+  });
+  document.getElementById('adminPeriodNext').addEventListener('click', ()=>{
+    if(adminOffset > 0){
+      adminOffset -= 1;
+      renderAdmin();
+    }
+  });
+
+  async function renderAdmin(){
+    const container = document.getElementById('adminListContent');
+    container.innerHTML = '<div class="loading-row"><div class="dot-spin"></div>Cargando…</div>';
+    const entries = await fetchAllEntries();
+    const { start, end } = getPeriodBounds(adminRange, adminOffset);
+
+    document.getElementById('adminPeriodLabel').textContent = formatPeriodLabel(adminRange, start, end);
+    document.getElementById('adminPeriodNext').disabled = adminOffset === 0;
+
+    const byName = {};
+    entries.forEach(e=>{
+      const ed = new Date(e.date+'T00:00:00');
+      if(ed >= start && ed <= end){
+        const key = e.name.trim();
+        if(!byName[key]) byName[key] = [];
+        byName[key].push(e);
+      }
+    });
+
+    const people = Object.entries(byName).map(([name, list])=>({
+      name,
+      total: list.reduce((s,e)=> s + Number(e.steps||0), 0),
+      entries: list.sort((a,b)=> new Date(b.date+'T'+(b.time||'00:00')) - new Date(a.date+'T'+(a.time||'00:00')))
+    })).sort((a,b)=> b.total - a.total);
+
+    if(people.length === 0){
+      container.innerHTML = `<div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 20V10M16 20V4M12 20v-7"/></svg>
+        <p>Todavía no hay caminatas registradas en este periodo.</p>
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = people.map((p, i)=>{
+      const photosHtml = p.entries.map(e=>{
+        const fecha = new Date(e.date+'T00:00:00').toLocaleDateString('es-AR', {day:'numeric', month:'short'});
+        const feeling = e.feeling ? ' · ' + '⭐'.repeat(Math.min(e.feeling,5)) : '';
+        return `<div class="admin-photo-item">
+          <img src="${e.photo}" alt="comprobante de ${escapeHtml(p.name)}" onclick="window.__openLightbox('${e.photo.replace(/'/g,"\\'")}')">
+          <div class="admin-photo-meta">${Number(e.steps).toLocaleString('es-AR')} pasos<br>${fecha} · ${e.time||''}${feeling}</div>
+        </div>`;
+      }).join('');
+
+      return `<div class="admin-person-card">
+        <div class="admin-person-header" onclick="this.parentElement.classList.toggle('expanded')">
+          <div class="rank-num">${i+1}</div>
+          <div class="rank-avatar">${initials(p.name)}</div>
+          <div class="rank-info">
+            <div class="name">${escapeHtml(p.name)}</div>
+            <div class="sub">${p.entries.length} caminata${p.entries.length===1?'':'s'} registrada${p.entries.length===1?'':'s'}</div>
+          </div>
+          <div class="rank-steps">${p.total.toLocaleString('es-AR')}</div>
+          <svg class="chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="admin-photo-grid">${photosHtml}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ---------- lightbox ----------
+  window.__openLightbox = function(src){
+    document.getElementById('lightboxImg').src = src;
+    document.getElementById('lightboxOverlay').classList.add('active');
+  };
+  document.getElementById('lightboxOverlay').addEventListener('click', function(){
+    this.classList.remove('active');
+    document.getElementById('lightboxImg').src = '';
+  });
 
   function escapeHtml(s){
     return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
