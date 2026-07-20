@@ -320,6 +320,13 @@
     width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; cursor:pointer;
     display:block; transition:transform .15s;
   }
+  .admin-photo-item{position:relative;}
+  .admin-delete-btn{
+    position:absolute; top:4px; right:4px; z-index:2; width:22px; height:22px; border-radius:50%;
+    background:rgba(0,0,0,0.68); color:#fff; border:none; font-size:12px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; line-height:1;
+  }
+  .admin-delete-btn:active{transform:scale(0.9);}
   .admin-photo-item img:active{transform:scale(0.96);}
   .admin-photo-meta{font-size:10.5px; color:var(--text-2); text-align:center; margin-top:4px; line-height:1.3;}
 
@@ -649,9 +656,15 @@
   function initials(name){
     return name.trim().split(/\s+/).slice(0,2).map(w=>w[0]?.toUpperCase()||"").join("");
   }
+  function localDateStr(d){
+    // Fecha en el huso horario LOCAL del dispositivo, no en UTC (evita que la fecha se corra un día)
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
   function todayISO(){
-    const d = new Date();
-    return d.toISOString().slice(0,10);
+    return localDateStr(new Date());
   }
   function nowHHMM(){
     const d = new Date();
@@ -754,6 +767,7 @@
       .order('time', { ascending: false });
     if(error){ console.error(error); return cachedEntries || []; }
     const results = (data || []).map(row => ({
+      id: row.id,
       name: row.name,
       steps: row.steps,
       date: row.date,
@@ -938,7 +952,7 @@
     for(let i=6; i>=0; i--){
       const d = new Date();
       d.setDate(d.getDate()-i);
-      const iso = d.toISOString().slice(0,10);
+      const iso = localDateStr(d);
       const total = mine.filter(e=> e.date===iso).reduce((s,e)=> s + Number(e.steps||0), 0);
       let label = d.toLocaleDateString('es-AR', {weekday:'short'}).replace('.', '');
       label = label.charAt(0).toUpperCase() + label.slice(1,3);
@@ -1208,8 +1222,10 @@
       const photosHtml = p.entries.map(e=>{
         const fecha = new Date(e.date+'T00:00:00').toLocaleDateString('es-AR', {day:'numeric', month:'short'});
         const feeling = e.feeling ? ' · ' + '⭐'.repeat(Math.min(e.feeling,5)) : '';
+        const label = `${escapeHtml(p.name)} · ${Number(e.steps).toLocaleString('es-AR')} pasos · ${fecha}`.replace(/'/g,"\\'");
         return `<div class="admin-photo-item">
-          <img src="${e.photo}" alt="comprobante de ${escapeHtml(p.name)}" onclick="window.__openLightbox('${e.photo.replace(/'/g,"\\'")}')">
+          <button class="admin-delete-btn" title="Eliminar esta carga" onclick="event.stopPropagation(); window.__deleteEntry('${e.id}', '${label}')">✕</button>
+          <img src="${e.photo}" alt="comprobante de ${escapeHtml(p.name)}" onclick="event.stopPropagation(); window.__openLightbox('${e.photo.replace(/'/g,"\\'")}')">
           <div class="admin-photo-meta">${Number(e.steps).toLocaleString('es-AR')} pasos<br>${fecha} · ${e.time||''}${feeling}</div>
         </div>`;
       }).join('');
@@ -1239,6 +1255,22 @@
     this.classList.remove('active');
     document.getElementById('lightboxImg').src = '';
   });
+
+  // ---------- eliminar carga (admin) ----------
+  window.__deleteEntry = async function(id, label){
+    const ok = confirm('¿Eliminar esta caminata?\n\n' + label + '\n\nEsta acción no se puede deshacer.');
+    if(!ok) return;
+    try{
+      const { error } = await supabase.from('entries').delete().eq('id', id);
+      if(error) throw error;
+      cachedEntries = null;
+      showToast('Caminata eliminada');
+      renderAdmin();
+    }catch(err){
+      console.error(err);
+      showToast('No se pudo eliminar. Probá de nuevo.', true);
+    }
+  };
 
   function escapeHtml(s){
     return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
